@@ -3,6 +3,7 @@ package main
 import (
 	"bootdev_blog_aggregator/internal/config"
 	"bootdev_blog_aggregator/internal/database"
+	"bootdev_blog_aggregator/internal/rss"
 	"context"
 	"fmt"
 	"time"
@@ -89,6 +90,17 @@ func handlerUsers(s *state, cmd command) error {
 			fmt.Printf("* %s\n", user)
 		}
 	}
+	return nil
+}
+
+func handlerAggregator(s *state, cmd command) error {
+	feedURL := "https://www.wagslane.dev/index.xml"
+	ctx := context.Background()
+	rssFeed, err := rss.FetchFeed(ctx, feedURL)
+	if err != nil {
+		return err
+	}
+	fmt.Print(rssFeed)
 	return nil
 }
 
