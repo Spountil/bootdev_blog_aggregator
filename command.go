@@ -104,6 +104,35 @@ func handlerAggregator(s *state, cmd command) error {
 	return nil
 }
 
+func handlerAddFeed(s *state, cmd command) error {
+	if len(cmd.args) < 2 {
+		return fmt.Errorf("Error: the addFeed handler expects two argument: the name and the URL.")
+	}
+	ctx := context.Background()
+	userInfo, err := s.db.GetUser(ctx, s.conf.CurrentUserName)
+	if err != nil {
+		return err
+	}
+	userID := userInfo.ID
+
+	arg := database.CreateFeedParams{
+		ID:        uuid.New(),
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+		Name:      cmd.args[0],
+		Url:       cmd.args[1],
+		UserID:    userID,
+	}
+
+	res, err := s.db.CreateFeed(ctx, arg)
+	if err != nil {
+		return err
+	}
+
+	fmt.Print(res)
+	return nil
+}
+
 func (c *commands) run(s *state, cmd command) error {
 	fn, ok := c.cmds[cmd.name]
 	if !ok {
