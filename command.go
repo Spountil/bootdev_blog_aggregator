@@ -5,6 +5,7 @@ import (
 	"bootdev_blog_aggregator/internal/database"
 	"bootdev_blog_aggregator/internal/rss"
 	"context"
+	"database/sql"
 	"fmt"
 	"time"
 
@@ -94,14 +95,19 @@ func handlerUsers(s *state, cmd command) error {
 }
 
 func handlerAggregator(s *state, cmd command) error {
-	feedURL := "https://www.wagslane.dev/index.xml"
-	ctx := context.Background()
-	rssFeed, err := rss.FetchFeed(ctx, feedURL)
+	if len(cmd.args) < 1 {
+		return fmt.Errorf("Error: the agg handler expects one argument: the time between requests.")
+	}
+
+	time_between_reqs, err := time.ParseDuration(cmd.args[0])
 	if err != nil {
 		return err
 	}
-	fmt.Print(rssFeed)
-	return nil
+
+	ticker := time.NewTicker(time_between_reqs)
+	for ; ; <-ticker.C {
+		scrapeFeeds(s)
+	}
 }
 
 func handlerAddFeed(s *state, cmd command, user database.User) error {
@@ -230,6 +236,38 @@ func middlewareLoggedIn(handler func(s *state, cmd command, user database.User) 
 
 		return handler(s, cmd, user)
 	}
+}
+
+func scrapeFeeds(s *state) error {
+	ctx := context.Background()
+	nextFeed, err := s.db.GetNextFeedFetch(ctx)
+	if err != nil {
+		return err
+	}
+
+	args := database.MarkFeedFetchedParams{
+		UpdatedAt: time.Now(),
+		LastFetchedAt: sql.NullTime{
+			Time:  time.Now(),
+			Valid: true,
+		},
+		ID: nextFeed.ID,
+	}
+
+	err = s.db.MarkFeedFetched(ctx, args)
+	if err != nil {
+		return nil
+	}
+
+	rssFeed, err := rss.FetchFeed(ctx, nextFeed.Url)
+	if err != nil {
+		return err
+	}
+
+	for _, item := range rssFeed.Channel.Item {
+		fmt.Printf(" - %s\n", item.Title)
+	}
+	return nil
 }
 
 func (c *commands) run(s *state, cmd command) error {
