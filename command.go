@@ -7,6 +7,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -226,6 +227,30 @@ func handlerUnfollow(s *state, cmd command, user database.User) error {
 	return nil
 }
 
+func handlerBrowse(s *state, cmd command) error {
+	var num int64
+	var err error
+	if len(cmd.args) < 1 {
+		num = 2
+	} else {
+		num, err = strconv.ParseInt(cmd.args[0], 10, 32)
+		if err != nil {
+			return err
+		}
+	}
+
+	ctx := context.Background()
+	posts, err := s.db.GetPosts(ctx, int32(num))
+	if err != nil {
+		return err
+	}
+
+	for _, post := range posts {
+		fmt.Printf(" - Title: %s\n", post.Title)
+	}
+	return nil
+}
+
 func middlewareLoggedIn(handler func(s *state, cmd command, user database.User) error) func(*state, command) error {
 	return func(s *state, cmd command) error {
 		ctx := context.Background()
@@ -265,7 +290,28 @@ func scrapeFeeds(s *state) error {
 	}
 
 	for _, item := range rssFeed.Channel.Item {
-		fmt.Printf(" - %s\n", item.Title)
+		pubDate, err := time.Parse(item.PubDate, item.PubDate)
+		postsArgs := database.CreatePostParams{
+			ID:        uuid.New(),
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+			Title:     item.Title,
+			Url:       item.Link,
+			Description: sql.NullString{
+				String: item.Description,
+				Valid:  true,
+			},
+			PublishedAt: sql.NullTime{
+				Time:  pubDate,
+				Valid: true,
+			},
+			FeedID: nextFeed.ID,
+		}
+		post, err := s.db.CreatePost(ctx, postsArgs)
+		if err != nil {
+			return err
+		}
+		fmt.Printf(" - Post: %s created in the database\n", post.Title)
 	}
 	return nil
 }
