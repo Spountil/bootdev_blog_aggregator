@@ -104,16 +104,10 @@ func handlerAggregator(s *state, cmd command) error {
 	return nil
 }
 
-func handlerAddFeed(s *state, cmd command) error {
+func handlerAddFeed(s *state, cmd command, user database.User) error {
 	if len(cmd.args) < 2 {
 		return fmt.Errorf("Error: the addFeed handler expects two argument: the name and the URL.")
 	}
-	ctx := context.Background()
-	userInfo, err := s.db.GetUser(ctx, s.conf.CurrentUserName)
-	if err != nil {
-		return err
-	}
-	userID := userInfo.ID
 
 	arg := database.CreateFeedParams{
 		ID:        uuid.New(),
@@ -121,17 +115,18 @@ func handlerAddFeed(s *state, cmd command) error {
 		UpdatedAt: time.Now(),
 		Name:      cmd.args[0],
 		Url:       cmd.args[1],
-		UserID:    userID,
+		UserID:    user.ID,
 	}
 
-	_, err = s.db.CreateFeed(ctx, arg)
+	ctx := context.Background()
+	_, err := s.db.CreateFeed(ctx, arg)
 	if err != nil {
 		fmt.Print(err)
 		fmt.Print("Adding the information in the feed db")
 	}
 
 	cmd.args[0] = cmd.args[1]
-	err = handlerFollow(s, cmd)
+	err = handlerFollow(s, cmd, user)
 	if err != nil {
 		return err
 	}
@@ -158,17 +153,12 @@ func handlerFeeds(s *state, cmd command) error {
 	return nil
 }
 
-func handlerFollow(s *state, cmd command) error {
+func handlerFollow(s *state, cmd command, user database.User) error {
 	if len(cmd.args) < 1 {
 		return fmt.Errorf("Error: the follow handler expects one argument: the URL.")
 	}
-	ctx := context.Background()
-	userInfo, err := s.db.GetUser(ctx, s.conf.CurrentUserName)
-	if err != nil {
-		return err
-	}
-	userID := userInfo.ID
 
+	ctx := context.Background()
 	feedID, err := s.db.GetFeedsIDFromURL(ctx, cmd.args[0])
 	if err != nil {
 		return err
@@ -178,7 +168,7 @@ func handlerFollow(s *state, cmd command) error {
 		ID:        uuid.New(),
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
-		UserID:    userID,
+		UserID:    user.ID,
 		FeedID:    feedID,
 	}
 
@@ -191,10 +181,9 @@ func handlerFollow(s *state, cmd command) error {
 	return nil
 }
 
-func handlerFollowing(s *state, cmd command) error {
+func handlerFollowing(s *state, cmd command, user database.User) error {
 	ctx := context.Background()
-	userName := s.conf.CurrentUserName
-	feedNames, err := s.db.GetFeedFollowsForUser(ctx, userName)
+	feedNames, err := s.db.GetFeedFollowsForUser(ctx, user.Name)
 	if err != nil {
 		return err
 	}
@@ -205,6 +194,42 @@ func handlerFollowing(s *state, cmd command) error {
 		fmt.Printf(" - %s\n", feedName)
 	}
 	return nil
+}
+
+func handlerUnfollow(s *state, cmd command, user database.User) error {
+	if len(cmd.args) < 1 {
+		return fmt.Errorf("Error: the unfollow handler expects one argument: the URL.")
+	}
+
+	ctx := context.Background()
+	feedID, err := s.db.GetFeedsIDFromURL(ctx, cmd.args[0])
+	if err != nil {
+		return err
+	}
+
+	args := database.DeleteFeedFollowsParams{
+		UserID: user.ID,
+		FeedID: feedID,
+	}
+
+	err = s.db.DeleteFeedFollows(ctx, args)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func middlewareLoggedIn(handler func(s *state, cmd command, user database.User) error) func(*state, command) error {
+	return func(s *state, cmd command) error {
+		ctx := context.Background()
+		user, err := s.db.GetUser(ctx, s.conf.CurrentUserName)
+		if err != nil {
+			return err
+		}
+
+		return handler(s, cmd, user)
+	}
 }
 
 func (c *commands) run(s *state, cmd command) error {
